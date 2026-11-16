@@ -2,6 +2,8 @@
 
 use App\Models\Generation;
 use App\Models\User;
+use App\Services\PixelForgeService;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -57,13 +59,16 @@ test('guests are redirected to the login page', function () {
     expect(Generation::count())->toBe(0);
 });
 
-test('creates the generation with the provider without storing it', function () {
+test('stores the generation locally and links it to the provider request', function () {
     Http::preventStrayRequests();
+    $providerGeneration = pixelForgeGeneration();
     Http::fake([
-        'pixelforge.test/v1/generations' => Http::response(pixelForgeGeneration(), 202),
+        'pixelforge.test/v1/generations' => Http::response($providerGeneration, 202),
     ]);
 
-    $response = $this->actingAs(User::factory()->create())->post(route('generations.store'), [
+    $user = User::factory()->create();
+
+    $response = $this->actingAs($user)->post(route('generations.store'), [
         'prompt' => 'A lighthouse on a cliff at dawn, oil painting',
         'size' => '1536x1024',
         'quality' => 'high',
@@ -71,16 +76,26 @@ test('creates the generation with the provider without storing it', function () 
     ]);
 
     $response->assertRedirect(route('dashboard'));
-    expect(Generation::count())->toBe(0);
 
-    Http::assertSent(function (Request $request): bool {
+    $generation = Generation::sole();
+
+    expect($generation->user_id)->toBe($user->id)
+        ->and($generation->provider_id)->toBe($providerGeneration['id'])
+        ->and($generation->status)->toBe('queued')
+        ->and($generation->prompt)->toBe('A lighthouse on a cliff at dawn, oil painting')
+        ->and($generation->size)->toBe('1536x1024')
+        ->and($generation->quality)->toBe('high')
+        ->and($generation->reference_images)->toBe(['https://example.com/style.png'])
+        ->and($generation->input_text_tokens_rate_cents)->toBe(500)
+        ->and($generation->output_tokens_rate_cents)->toBe(4000)
+        ->and($generation->accepted_at->toDateTimeString())->toBe('2026-11-04 14:03:11');
+
+    Http::assertSent(function (Request $request) use ($generation): bool {
         return $request->method() === 'POST'
             && $request->url() === 'https://pixelforge.test/v1/generations'
-            && $request->hasHeader('Idempotency-Key')
+            && $request->hasHeader('Idempotency-Key', $generation->id)
             && $request['prompt'] === 'A lighthouse on a cliff at dawn, oil painting'
-            && $request['size'] === '1536x1024'
-            && $request['quality'] === 'high'
-            && $request['reference_images'] === ['https://example.com/style.png'];
+            && $request['metadata'] === ['generation_id' => $generation->id];
     });
 });
 
@@ -116,6 +131,29 @@ test('shows the new generation in the listing after the redirect', function () {
         );
 });
 
+test('keeps the local generation when the provider is unreachable', function () {
+    Http::preventStrayRequests();
+    Http::fake(fn () => throw new ConnectionException('Connection timed out.'));
+
+    $this->app->instance(PixelForgeService::class, new PixelForgeService(
+        apiKey: 'pf_test_key',
+        baseUrl: 'https://pixelforge.test/v1',
+        timeout: 30,
+        maxAttempts: 1,
+    ));
+
+    $this->actingAs(User::factory()->create())->post(route('generations.store'), [
+        'prompt' => 'A lighthouse on a cliff at dawn, oil painting',
+        'size' => '1024x1024',
+        'quality' => 'medium',
+    ]);
+
+    $generation = Generation::sole();
+
+    expect($generation->provider_id)->toBeNull()
+        ->and($generation->status)->toBe('queued');
+});
+
 test('requires prompt, size and quality', function () {
     Http::preventStrayRequests();
 
@@ -149,7 +187,7 @@ test('allows reference images to be omitted', function () {
 
     Http::assertSent(fn (Request $request): bool => ! isset($request['reference_images']));
 
-    expect(Generation::count())->toBe(0);
+    expect(Generation::count())->toBe(1);
 });
 
 test('rejects invalid generation input without calling the provider', function () {

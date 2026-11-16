@@ -4,11 +4,13 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
 /**
  * @property string $id
- * @property string $provider_id The third-party generation ID, prefixed gen_.
+ * @property int|null $user_id
+ * @property string|null $provider_id The third-party generation ID, prefixed gen_.
  * @property string $status One of queued, processing, succeeded, failed.
  * @property string $prompt At most 4,000 characters.
  * @property string $size One of 1024x1024, 1536x1024, 1024x1536.
@@ -36,6 +38,63 @@ use Illuminate\Support\Carbon;
 class Generation extends Model
 {
     use HasUuids;
+
+    /**
+     * @return BelongsTo<User, $this>
+     */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Map a Pixelforge generation object onto this model's attributes.
+     *
+     * @param  array<string, mixed>  $object
+     * @return array<string, mixed>
+     */
+    public static function providerAttributes(array $object): array
+    {
+        $usage = is_array($object['usage'] ?? null) ? $object['usage'] : [];
+        $rates = is_array($object['rates'] ?? null) ? $object['rates'] : [];
+
+        return [
+            'provider_id' => $object['id'] ?? null,
+            'status' => $object['status'] ?? 'queued',
+            'prompt' => $object['prompt'] ?? null,
+            'size' => $object['size'] ?? null,
+            'quality' => $object['quality'] ?? null,
+            'reference_images' => $object['reference_images'] ?? [],
+            'metadata' => $object['metadata'] ?? [],
+            'image_url' => $object['image_url'] ?? null,
+            'image_url_expires_at' => $object['image_url_expires_at'] ?? null,
+            'input_text_tokens' => $usage['input_text_tokens'] ?? null,
+            'input_image_tokens' => $usage['input_image_tokens'] ?? null,
+            'output_tokens' => $usage['output_tokens'] ?? null,
+            'reasoning_tokens' => $usage['reasoning_tokens'] ?? null,
+            'total_tokens' => $usage['total_tokens'] ?? null,
+            'input_text_tokens_rate_cents' => self::rateCents($rates, 'input_text_tokens'),
+            'input_image_tokens_rate_cents' => self::rateCents($rates, 'input_image_tokens'),
+            'output_tokens_rate_cents' => self::rateCents($rates, 'output_tokens'),
+            'reasoning_tokens_rate_cents' => self::rateCents($rates, 'reasoning_tokens'),
+            'error' => $object['error'] ?? null,
+            'accepted_at' => $object['created_at'] ?? null,
+            'started_at' => $object['started_at'] ?? null,
+            'completed_at' => $object['completed_at'] ?? null,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $rates
+     */
+    private static function rateCents(array $rates, string $key): ?int
+    {
+        if (! isset($rates[$key]) || ! is_numeric($rates[$key])) {
+            return null;
+        }
+
+        return (int) round(((float) $rates[$key]) * 100);
+    }
 
     /**
      * Get the attributes that should be cast.

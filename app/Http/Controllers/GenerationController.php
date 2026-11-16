@@ -6,6 +6,7 @@ use App\Actions\CreateGeneration;
 use App\Exceptions\PixelForgeException;
 use App\Facades\PixelForge;
 use App\Http\Requests\StoreGenerationRequest;
+use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -46,8 +47,12 @@ class GenerationController extends Controller
     {
         $input = $request->safe();
 
+        /** @var User $user */
+        $user = $request->user();
+
         try {
             $createGeneration->handle(
+                user: $user,
                 prompt: $input->string('prompt')->toString(),
                 size: $input->string('size')->toString(),
                 quality: $input->string('quality')->toString(),
