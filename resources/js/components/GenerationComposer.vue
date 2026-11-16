@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ImagePlus, Plus, Sparkles, X } from '@lucide/vue';
+import { ImagePlus, Loader2, Plus, Sparkles, X } from '@lucide/vue';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import InputError from '@/components/InputError.vue';
 import { Badge } from '@/components/ui/badge';
@@ -33,6 +33,17 @@ type ReferenceRow = {
 const emit = defineEmits<{
     submit: [request: GenerationRequest];
 }>();
+
+const props = withDefaults(
+    defineProps<{
+        processing?: boolean;
+        errors?: Record<string, string | undefined>;
+    }>(),
+    {
+        processing: false,
+        errors: () => ({}),
+    },
+);
 
 const prompt = ref('');
 const size = ref<GenerationSize>('1024x1024');
@@ -109,7 +120,7 @@ const removeReference = (id: number) => {
 };
 
 const submit = () => {
-    if (!canSubmit.value) {
+    if (!canSubmit.value || props.processing) {
         references.value.forEach((row) => {
             row.touched = true;
         });
@@ -185,6 +196,7 @@ onBeforeUnmount(() => {
                 <p class="text-xs text-muted-foreground">
                     Be specific about the subject, composition, and lighting.
                 </p>
+                <InputError :message="errors.prompt" />
             </div>
 
             <div class="space-y-2">
@@ -250,8 +262,10 @@ onBeforeUnmount(() => {
                             </Button>
                         </div>
                         <InputError
-                            v-if="row.touched && referenceError(row)"
-                            :message="referenceError(row)"
+                            :message="
+                                errors[`reference_images.${index}`] ??
+                                (row.touched ? referenceError(row) : undefined)
+                            "
                         />
                     </div>
                 </div>
@@ -284,6 +298,7 @@ onBeforeUnmount(() => {
                         </SelectItem>
                     </SelectContent>
                 </Select>
+                <InputError :message="errors.size" />
             </div>
 
             <div class="space-y-2">
@@ -305,14 +320,21 @@ onBeforeUnmount(() => {
                 <p class="text-xs text-muted-foreground">
                     Higher quality takes longer and uses more tokens.
                 </p>
+                <InputError :message="errors.quality" />
             </div>
         </div>
 
         <div class="flex shrink-0 justify-end border-t px-4 py-3">
-            <Button type="submit" :disabled="!canSubmit" class="shrink-0">
-                <Sparkles />
-                Generate
+            <Button
+                type="submit"
+                :disabled="!canSubmit || processing"
+                class="shrink-0"
+            >
+                <Loader2 v-if="processing" class="animate-spin" />
+                <Sparkles v-else />
+                {{ processing ? 'Generating…' : 'Generate' }}
                 <span
+                    v-if="!processing"
                     class="ml-1 hidden rounded border border-primary-foreground/20 px-1 py-px text-[10px] font-normal text-primary-foreground/70 sm:inline-block"
                 >
                     {{ modifierLabel }}↵
