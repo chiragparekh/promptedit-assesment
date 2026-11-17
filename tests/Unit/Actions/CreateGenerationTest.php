@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Services\PixelForgeService;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 beforeEach(function () {
@@ -16,6 +17,8 @@ beforeEach(function () {
         'services.pixelforge.base_url' => 'https://pixelforge.test/v1',
         'services.pixelforge.timeout' => 30,
     ]);
+
+    Cache::put('pixelforge.pricing', pixelForgePricing(), now()->addHour());
 });
 
 test('creates the local row before calling the provider', function () {
@@ -170,4 +173,52 @@ test('fills the provider id when the webhook advanced the status without it', fu
 
     expect($generation->provider_id)->toBe($providerGeneration['id'])
         ->and($generation->status)->toBe(GenerationStatus::Processing);
+});
+
+test('records the estimated cost at the rates the provider locked in', function () {
+    Http::preventStrayRequests();
+    Http::fake([
+        'pixelforge.test/v1/generations' => Http::response(pixelForgeGeneration([
+            'prompt' => str_repeat('a', 100),
+            'size' => '1024x1024',
+            'quality' => 'medium',
+            'reference_images' => [],
+        ]), 202),
+    ]);
+
+    $generation = app(CreateGeneration::class)->handle(
+        user: User::factory()->create(),
+        prompt: str_repeat('a', 100),
+        size: '1024x1024',
+        quality: 'medium',
+    );
+
+    expect($generation->estimated_provider_cost_nano)->toBe(57_875_000)
+        ->and($generation->estimated_price_nano)->toBe(72_343_750);
+});
+
+test('still creates the generation when pricing is unavailable', function () {
+    Http::preventStrayRequests();
+    Cache::forget('pixelforge.pricing');
+    Http::fake([
+        'pixelforge.test/v1/pricing' => Http::response([
+            'error' => [
+                'type' => 'authentication_error',
+                'code' => 'invalid_api_key',
+                'message' => 'The API key is invalid.',
+            ],
+        ], 401),
+        'pixelforge.test/v1/generations' => Http::response(pixelForgeGeneration(), 202),
+    ]);
+
+    $generation = app(CreateGeneration::class)->handle(
+        user: User::factory()->create(),
+        prompt: 'A lighthouse on a cliff at dawn, oil painting',
+        size: '1024x1024',
+        quality: 'medium',
+    );
+
+    expect($generation->exists)->toBeTrue()
+        ->and($generation->estimated_provider_cost_nano)->toBeNull()
+        ->and($generation->estimated_price_nano)->toBeNull();
 });

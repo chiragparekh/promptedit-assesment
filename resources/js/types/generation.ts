@@ -21,6 +21,18 @@ export type GenerationUsage = {
     total_tokens: number;
 };
 
+/** A row from GET /generations/status, used to refresh in-flight cards. */
+export type GenerationSyncRow = {
+    provider_id: string;
+    status: GenerationStatus;
+    image_url: string | null;
+    image_url_expires_at: string | null;
+    error: { code: string; message: string } | null;
+    estimated_cost: string | null;
+    actual_cost: string | null;
+    completed_at: string | null;
+};
+
 export type GenerationRecord = {
     id: string;
     object: string;
@@ -33,6 +45,10 @@ export type GenerationRecord = {
     image_url: string | null;
     image_url_expires_at: string | null;
     usage: GenerationUsage | null;
+    /** What we quoted the user, as an exact USD string, once the request is accepted. */
+    estimated_cost: string | null;
+    /** What we charged, once the generation finished. "0.000000000" for a failure. */
+    actual_cost: string | null;
     error: { code: string; message: string } | null;
     created_at: string;
     started_at: string | null;

@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Enums\GenerationStatus;
 use App\Models\Generation;
 use App\Models\WebhookEvent;
+use App\Services\PricingCalculator;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -23,16 +24,16 @@ class ApplyPixelforgeEvent implements ShouldQueue
 
     public function __construct(public readonly string $webhookEventId) {}
 
-    public function handle(): void
+    public function handle(PricingCalculator $calculator): void
     {
-        DB::transaction(function (): void {
+        DB::transaction(function () use ($calculator): void {
             $event = WebhookEvent::query()->lockForUpdate()->find($this->webhookEventId);
 
             if ($event === null || $event->processed_at !== null) {
                 return;
             }
 
-            $this->apply($event);
+            $this->apply($event, $calculator);
         });
     }
 
@@ -46,7 +47,7 @@ class ApplyPixelforgeEvent implements ShouldQueue
         ]);
     }
 
-    private function apply(WebhookEvent $event): void
+    private function apply(WebhookEvent $event, PricingCalculator $calculator): void
     {
         if (! str_starts_with($event->type, 'generation.')) {
             $this->markProcessed($event);
@@ -94,9 +95,59 @@ class ApplyPixelforgeEvent implements ShouldQueue
 
         if ($generation->status->canTransitionTo($incoming)) {
             $generation->update(Generation::providerAttributes($object));
+
+            $this->recordCost($generation, $incoming, $object, $calculator);
         }
 
         $this->markProcessed($event);
+    }
+
+    /**
+     * Record what the finished generation actually cost. Only a succeeded event
+     * carries usage, and Pixelforge never bills a failure, so failures cost zero.
+     * Recomputing is deterministic, and the status guard means this runs once.
+     *
+     * @param  array<string, mixed>  $object
+     */
+    private function recordCost(
+        Generation $generation,
+        GenerationStatus $status,
+        array $object,
+        PricingCalculator $calculator,
+    ): void {
+        if ($status === GenerationStatus::Failed) {
+            $generation->update([
+                'actual_provider_cost_nano' => 0,
+                'actual_price_nano' => 0,
+            ]);
+
+            return;
+        }
+
+        if ($status !== GenerationStatus::Succeeded) {
+            return;
+        }
+
+        $usage = data_get($object, 'usage');
+        $rates = data_get($object, 'rates');
+
+        $cost = is_array($usage) && is_array($rates)
+            ? $calculator->actualNano($usage, $rates)
+            : null;
+
+        if ($cost === null) {
+            Log::warning('Pixelforge succeeded event carried no usable usage or rates.', [
+                'generation_id' => $generation->id,
+                'provider_id' => $object['id'] ?? null,
+            ]);
+
+            return;
+        }
+
+        $generation->update([
+            'actual_provider_cost_nano' => $cost['provider'],
+            'actual_price_nano' => $cost['price'],
+        ]);
     }
 
     /**

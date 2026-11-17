@@ -3,6 +3,7 @@
 use App\Models\Generation;
 use App\Models\User;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Inertia\Testing\AssertableInertia as Assert;
 
@@ -12,6 +13,8 @@ beforeEach(function () {
         'services.pixelforge.base_url' => 'https://pixelforge.test/v1',
         'services.pixelforge.timeout' => 30,
     ]);
+
+    Cache::put('pixelforge.pricing', pixelForgePricing(), now()->addHour());
 });
 
 test('guests are redirected to the login page', function () {

@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Generation;
 use App\Models\User;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -49,7 +50,20 @@ test('authenticated users see the latest generations from the provider', functio
         ]),
     ]);
 
-    $response = $this->actingAs(User::factory()->create())->get(route('dashboard'));
+    $user = User::factory()->create();
+
+    Generation::create([
+        'user_id' => $user->id,
+        'provider_id' => 'gen_01JC2Z8Q4N6V0M3H7X5T9R2B1K',
+        'status' => 'succeeded',
+        'prompt' => 'A brass lighthouse at dawn, oil painting',
+        'size' => '1024x1024',
+        'quality' => 'medium',
+        'estimated_price_nano' => 72_343_750,
+        'actual_price_nano' => 381_887_500,
+    ]);
+
+    $response = $this->actingAs($user)->get(route('dashboard'));
 
     $response->assertOk()
         ->assertInertia(fn (Assert $page) => $page
@@ -60,6 +74,8 @@ test('authenticated users see the latest generations from the provider', functio
             ->where('generations.data.0.status', 'succeeded')
             ->where('generations.data.0.prompt', 'A brass lighthouse at dawn, oil painting')
             ->where('generations.data.0.image_url', 'https://pixelforge.test/images/gen_01JC2Z8Q4N6V0M3H7X5T9R2B1K.png')
+            ->where('generations.data.0.estimated_cost', '0.072343750')
+            ->where('generations.data.0.actual_cost', '0.381887500')
         );
 
     $page = $response->viewData('page');

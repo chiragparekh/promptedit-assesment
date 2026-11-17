@@ -112,7 +112,41 @@ test('applies a succeeded event with usage and rates', function () {
         ->and($generation->output_tokens_rate_cents)->toBe(4000)
         ->and($generation->image_url)->not->toBeNull()
         ->and($generation->completed_at)->not->toBeNull()
+        ->and($generation->actual_provider_cost_nano)->toBe(305_510_000)
+        ->and($generation->actual_price_nano)->toBe(381_887_500)
         ->and($event->refresh()->processed_at)->not->toBeNull();
+});
+
+test('records a zero cost for a failed generation', function () {
+    $generation = localGeneration();
+    $event = receivedWebhookEvent($generation, 'generation.failed', [
+        'status' => 'failed',
+        'error' => ['code' => 'generation_failed', 'message' => 'The model could not draw this.'],
+    ]);
+
+    ApplyPixelforgeEvent::dispatchSync($event->id);
+
+    $generation->refresh();
+
+    expect($generation->status)->toBe(GenerationStatus::Failed)
+        ->and($generation->actual_provider_cost_nano)->toBe(0)
+        ->and($generation->actual_price_nano)->toBe(0);
+});
+
+test('leaves the cost unset when a succeeded event has no usable usage', function () {
+    $generation = localGeneration();
+    $event = receivedWebhookEvent($generation, 'generation.succeeded', [
+        'status' => 'succeeded',
+        'usage' => ['total_tokens' => 10411],
+    ]);
+
+    ApplyPixelforgeEvent::dispatchSync($event->id);
+
+    $generation->refresh();
+
+    expect($generation->status)->toBe(GenerationStatus::Succeeded)
+        ->and($generation->actual_provider_cost_nano)->toBeNull()
+        ->and($generation->actual_price_nano)->toBeNull();
 });
 
 test('applies a failed event', function () {
@@ -155,6 +189,8 @@ test('does not apply a second succeeded event twice', function () {
         'status' => 'succeeded',
         'provider_id' => 'gen_01JC2Z8Q4N6V0M3H7X5T9R2B1K',
         'total_tokens' => 10411,
+        'actual_provider_cost_nano' => 305_510_000,
+        'actual_price_nano' => 381_887_500,
     ]);
 
     $event = receivedWebhookEvent($generation, 'generation.succeeded', [
@@ -164,7 +200,11 @@ test('does not apply a second succeeded event twice', function () {
 
     ApplyPixelforgeEvent::dispatchSync($event->id);
 
-    expect($generation->refresh()->total_tokens)->toBe(10411);
+    $generation->refresh();
+
+    expect($generation->total_tokens)->toBe(10411)
+        ->and($generation->actual_provider_cost_nano)->toBe(305_510_000)
+        ->and($generation->actual_price_nano)->toBe(381_887_500);
 });
 
 test('matches a generation through metadata before the provider id is known', function () {
