@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\GenerationStatus;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,7 +12,7 @@ use Illuminate\Support\Carbon;
  * @property string $id
  * @property int|null $user_id
  * @property string|null $provider_id The third-party generation ID, prefixed gen_.
- * @property string $status One of queued, processing, succeeded, failed.
+ * @property GenerationStatus $status One of queued, processing, succeeded, failed.
  * @property string $prompt At most 4,000 characters.
  * @property string $size One of 1024x1024, 1536x1024, 1024x1536.
  * @property string $quality One of low, medium, high.
@@ -107,6 +108,7 @@ class Generation extends Model
             'reference_images' => 'array',
             'metadata' => 'array',
             'error' => 'array',
+            'status' => GenerationStatus::class,
             'image_url_expires_at' => 'datetime',
             'accepted_at' => 'datetime',
             'input_text_tokens' => 'integer',

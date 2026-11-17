@@ -2,6 +2,7 @@
 
 namespace App\Actions;
 
+use App\Enums\GenerationStatus;
 use App\Exceptions\PixelForgeException;
 use App\Facades\PixelForge;
 use App\Models\Generation;
@@ -47,6 +48,16 @@ class CreateGeneration
             }
 
             throw $exception;
+        }
+
+        $generation->refresh();
+
+        if ($generation->status !== GenerationStatus::Queued) {
+            if ($generation->provider_id === null && is_string($payload['id'] ?? null)) {
+                $generation->update(['provider_id' => $payload['id']]);
+            }
+
+            return $generation;
         }
 
         $generation->update(Generation::providerAttributes($payload));
