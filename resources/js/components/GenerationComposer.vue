@@ -1,33 +1,45 @@
 <script setup lang="ts">
-import { ImagePlus, Loader2, Plus, Sparkles, X } from '@lucide/vue';
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import InputError from '@/components/InputError.vue';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { ImagePlus, Loader2, Plus, Sparkles, X } from "@lucide/vue";
+import { useHttp } from "@inertiajs/vue3";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import GenerationEstimateController from "@/actions/App/Http/Controllers/GenerationEstimateController";
+import InputError from "@/components/InputError.vue";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
     Select,
     SelectContent,
     SelectItem,
     SelectTrigger,
     SelectValue,
-} from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { formatUsd } from "@/lib/pricing";
+import type { GenerationEstimate } from "@/types/pricing";
 import type {
     GenerationQuality,
     GenerationRequest,
     GenerationSize,
-} from '@/types/generation';
+} from "@/types/generation";
 
 const PROMPT_LIMIT = 4000;
 const REFERENCE_LIMIT = 4;
+const ESTIMATE_DEBOUNCE_MS = 600;
 
 type ReferenceRow = {
     id: number;
     url: string;
     touched: boolean;
     previewFailed: boolean;
+};
+
+type EstimatePayload = {
+    prompt: string;
+    size: GenerationSize;
+    quality: GenerationQuality;
+    reference_images: string[];
 };
 
 const emit = defineEmits<{
@@ -45,31 +57,30 @@ const props = withDefaults(
     },
 );
 
-const prompt = ref('');
-const size = ref<GenerationSize>('1024x1024');
-const quality = ref<GenerationQuality>('medium');
+const prompt = ref("");
+const size = ref<GenerationSize>("1024x1024");
+const quality = ref<GenerationQuality>("medium");
 const references = ref<ReferenceRow[]>([]);
-const modifierLabel = ref('Ctrl');
 
 let nextRowId = 1;
 
 const sizeOptions = [
-    { value: '1024x1024', label: 'Square — 1024 × 1024' },
-    { value: '1536x1024', label: 'Landscape — 1536 × 1024' },
-    { value: '1024x1536', label: 'Portrait — 1024 × 1536' },
+    { value: "1024x1024", label: "Square — 1024 × 1024" },
+    { value: "1536x1024", label: "Landscape — 1536 × 1024" },
+    { value: "1024x1536", label: "Portrait — 1024 × 1536" },
 ] as const;
 
 const qualityOptions = [
-    { value: 'low', label: 'Low' },
-    { value: 'medium', label: 'Medium' },
-    { value: 'high', label: 'High' },
+    { value: "low", label: "Low" },
+    { value: "medium", label: "Medium" },
+    { value: "high", label: "High" },
 ] as const;
 
 const isHttpUrl = (value: string): boolean => {
     try {
         const url = new URL(value);
 
-        return url.protocol === 'http:' || url.protocol === 'https:';
+        return url.protocol === "http:" || url.protocol === "https:";
     } catch {
         return false;
     }
@@ -81,14 +92,69 @@ const referenceUrls = computed(() =>
     references.value.map((row) => row.url.trim()).filter(Boolean),
 );
 
+/**
+ * Only complete, valid http(s) URLs are sent to the provider, so only those are
+ * billed: each costs 765 input image tokens.
+ */
+const billableReferenceUrls = computed(() =>
+    references.value
+        .map((row) => row.url.trim())
+        .filter((url) => isHttpUrl(url)),
+);
+
+const estimate = ref<GenerationEstimate | null>(null);
+
+const estimatePayload = (): EstimatePayload => ({
+    prompt: prompt.value.trim(),
+    size: size.value,
+    quality: quality.value,
+    reference_images: billableReferenceUrls.value,
+});
+
+const estimateRequest = useHttp<EstimatePayload, GenerationEstimate>(
+    "post",
+    () => GenerationEstimateController.url(),
+    estimatePayload,
+);
+
+// useHttp snapshots its data once at setup, so rebuild the payload from the live
+// form state on every request instead of sending the values it was created with.
+estimateRequest.transform(estimatePayload);
+
+let estimateTimeout: number | undefined;
+
+const refreshEstimate = () => {
+    // Drop any request still in flight so fast typing can't stack them up.
+    estimateRequest.cancel();
+
+    estimateRequest
+        .post(GenerationEstimateController.url(), {
+            onSuccess: (response) => {
+                estimate.value = response;
+            },
+            onHttpException: () => {
+                estimate.value = null;
+            },
+            onNetworkError: () => {
+                estimate.value = null;
+            },
+        })
+        .catch(() => {});
+};
+
+watch([prompt, size, quality, billableReferenceUrls], () => {
+    window.clearTimeout(estimateTimeout);
+    estimateTimeout = window.setTimeout(refreshEstimate, ESTIMATE_DEBOUNCE_MS);
+});
+
 const referenceError = (row: ReferenceRow): string | undefined => {
-    if (row.url.trim() === '') {
+    if (row.url.trim() === "") {
         return undefined;
     }
 
     return isHttpUrl(row.url.trim())
         ? undefined
-        : 'Enter a valid http(s) image URL.';
+        : "Enter a valid http(s) image URL.";
 };
 
 const hasReferenceError = computed(() =>
@@ -97,7 +163,7 @@ const hasReferenceError = computed(() =>
 
 const canSubmit = computed(
     () =>
-        prompt.value.trim() !== '' &&
+        prompt.value.trim() !== "" &&
         promptLength.value <= PROMPT_LIMIT &&
         !hasReferenceError.value,
 );
@@ -109,7 +175,7 @@ const addReference = () => {
 
     references.value.push({
         id: nextRowId++,
-        url: '',
+        url: "",
         touched: false,
         previewFailed: false,
     });
@@ -118,6 +184,18 @@ const addReference = () => {
 const removeReference = (id: number) => {
     references.value = references.value.filter((row) => row.id !== id);
 };
+
+/**
+ * Clear what the user typed once a generation was accepted. Size and quality stay,
+ * since those are usually a preference rather than a per-image choice.
+ */
+const reset = () => {
+    prompt.value = "";
+    references.value = [];
+    estimate.value = null;
+};
+
+defineExpose({ reset });
 
 const submit = () => {
     if (!canSubmit.value || props.processing) {
@@ -128,7 +206,7 @@ const submit = () => {
         return;
     }
 
-    emit('submit', {
+    emit("submit", {
         prompt: prompt.value.trim(),
         size: size.value,
         quality: quality.value,
@@ -137,21 +215,21 @@ const submit = () => {
 };
 
 const handleShortcut = (event: KeyboardEvent) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
         event.preventDefault();
         submit();
     }
 };
 
 onMounted(() => {
-    modifierLabel.value = /Mac|iPhone|iPad/.test(navigator.userAgent)
-        ? '⌘'
-        : 'Ctrl';
-    window.addEventListener('keydown', handleShortcut);
+    window.addEventListener("keydown", handleShortcut);
+    refreshEstimate();
 });
 
 onBeforeUnmount(() => {
-    window.removeEventListener('keydown', handleShortcut);
+    window.removeEventListener("keydown", handleShortcut);
+    window.clearTimeout(estimateTimeout);
+    estimateRequest.cancel();
 });
 </script>
 
@@ -190,7 +268,7 @@ onBeforeUnmount(() => {
                     id="generation-prompt"
                     v-model="prompt"
                     :maxlength="PROMPT_LIMIT"
-                    class="min-h-32 resize-none"
+                    class="h-32 resize-none field-sizing-fixed"
                     placeholder="Describe the shot — subject, surface, light, lens."
                 />
                 <p class="text-xs text-muted-foreground">
@@ -324,7 +402,23 @@ onBeforeUnmount(() => {
             </div>
         </div>
 
-        <div class="flex shrink-0 justify-end border-t px-4 py-3">
+        <div
+            class="flex shrink-0 items-center justify-between gap-3 border-t px-4 py-3"
+        >
+            <div class="min-w-0">
+                <p
+                    v-if="estimateRequest.processing"
+                    class="text-sm font-medium text-muted-foreground"
+                >
+                    Estimating…
+                </p>
+                <p v-else-if="estimate" class="text-sm font-medium tabular-nums">
+                    Estimated {{ formatUsd(estimate.price.estimate) }}
+                </p>
+                <p v-else class="text-[11px] text-muted-foreground">
+                    Estimate unavailable
+                </p>
+            </div>
             <Button
                 type="submit"
                 :disabled="!canSubmit || processing"
@@ -332,13 +426,7 @@ onBeforeUnmount(() => {
             >
                 <Loader2 v-if="processing" class="animate-spin" />
                 <Sparkles v-else />
-                {{ processing ? 'Generating…' : 'Generate' }}
-                <span
-                    v-if="!processing"
-                    class="ml-1 hidden rounded border border-primary-foreground/20 px-1 py-px text-[10px] font-normal text-primary-foreground/70 sm:inline-block"
-                >
-                    {{ modifierLabel }}↵
-                </span>
+                {{ processing ? "Generating…" : "Generate" }}
             </Button>
         </div>
     </form>
