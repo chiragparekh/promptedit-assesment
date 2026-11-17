@@ -8,7 +8,7 @@ import {
  * Shared clock for relative timestamps, so every component reuses one timer.
  */
 export const useRelativeTime = createSharedComposable(() => {
-    const now = useNow({ interval: 60_000 });
+    const now = useNow({ interval: 15_000 });
 
     return {
         now,

@@ -17,7 +17,14 @@ export function formatRelativeTime(
     value: DateInput,
     now: Date = new Date(),
 ): string {
-    const seconds = (new Date(value).getTime() - now.getTime()) / 1000;
+    let seconds = (new Date(value).getTime() - now.getTime()) / 1000;
+
+    // The shared clock ticks every few seconds, so a timestamp created moments ago
+    // can sit slightly ahead of it. That is drift, not the future: show "now".
+    if (seconds > 0 && seconds < 300) {
+        seconds = 0;
+    }
+
     const absolute = Math.abs(seconds);
 
     if (absolute < 5) {
