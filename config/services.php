@@ -28,6 +28,14 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'pixelforge' => [
+        'api_key' => env('PIXELFORGE_API_KEY'),
+        'base_url' => env('PIXELFORGE_BASE_URL', 'https://pixelforge.promptedit.dev/v1'),
+        'timeout' => (int) env('PIXELFORGE_TIMEOUT', 30),
+        'webhook_secret' => env('PIXELFORGE_WEBHOOK_SECRET'),
+        'webhook_tolerance' => (int) env('PIXELFORGE_WEBHOOK_TOLERANCE', 300),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
