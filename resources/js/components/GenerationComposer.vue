@@ -1,28 +1,28 @@
 <script setup lang="ts">
-import { ImagePlus, Loader2, Plus, Sparkles, X } from "@lucide/vue";
-import { useHttp } from "@inertiajs/vue3";
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import GenerationEstimateController from "@/actions/App/Http/Controllers/GenerationEstimateController";
-import InputError from "@/components/InputError.vue";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { ImagePlus, Loader2, Plus, Sparkles, X } from '@lucide/vue';
+import { useHttp } from '@inertiajs/vue3';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import GenerationEstimateController from '@/actions/App/Http/Controllers/GenerationEstimateController';
+import InputError from '@/components/InputError.vue';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
     Select,
     SelectContent,
     SelectItem,
     SelectTrigger,
     SelectValue,
-} from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { formatUsd } from "@/lib/pricing";
-import type { GenerationEstimate } from "@/types/pricing";
+} from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { formatUsd } from '@/lib/pricing';
+import type { GenerationEstimate } from '@/types/pricing';
 import type {
     GenerationQuality,
     GenerationRequest,
     GenerationSize,
-} from "@/types/generation";
+} from '@/types/generation';
 
 const PROMPT_LIMIT = 4000;
 const REFERENCE_LIMIT = 4;
@@ -57,30 +57,30 @@ const props = withDefaults(
     },
 );
 
-const prompt = ref("");
-const size = ref<GenerationSize>("1024x1024");
-const quality = ref<GenerationQuality>("medium");
+const prompt = ref('');
+const size = ref<GenerationSize>('1024x1024');
+const quality = ref<GenerationQuality>('medium');
 const references = ref<ReferenceRow[]>([]);
 
 let nextRowId = 1;
 
 const sizeOptions = [
-    { value: "1024x1024", label: "Square — 1024 × 1024" },
-    { value: "1536x1024", label: "Landscape — 1536 × 1024" },
-    { value: "1024x1536", label: "Portrait — 1024 × 1536" },
+    { value: '1024x1024', label: 'Square — 1024 × 1024' },
+    { value: '1536x1024', label: 'Landscape — 1536 × 1024' },
+    { value: '1024x1536', label: 'Portrait — 1024 × 1536' },
 ] as const;
 
 const qualityOptions = [
-    { value: "low", label: "Low" },
-    { value: "medium", label: "Medium" },
-    { value: "high", label: "High" },
+    { value: 'low', label: 'Low' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high', label: 'High' },
 ] as const;
 
 const isHttpUrl = (value: string): boolean => {
     try {
         const url = new URL(value);
 
-        return url.protocol === "http:" || url.protocol === "https:";
+        return url.protocol === 'http:' || url.protocol === 'https:';
     } catch {
         return false;
     }
@@ -112,7 +112,7 @@ const estimatePayload = (): EstimatePayload => ({
 });
 
 const estimateRequest = useHttp<EstimatePayload, GenerationEstimate>(
-    "post",
+    'post',
     () => GenerationEstimateController.url(),
     estimatePayload,
 );
@@ -148,13 +148,13 @@ watch([prompt, size, quality, billableReferenceUrls], () => {
 });
 
 const referenceError = (row: ReferenceRow): string | undefined => {
-    if (row.url.trim() === "") {
+    if (row.url.trim() === '') {
         return undefined;
     }
 
     return isHttpUrl(row.url.trim())
         ? undefined
-        : "Enter a valid http(s) image URL.";
+        : 'Enter a valid http(s) image URL.';
 };
 
 const hasReferenceError = computed(() =>
@@ -163,7 +163,7 @@ const hasReferenceError = computed(() =>
 
 const canSubmit = computed(
     () =>
-        prompt.value.trim() !== "" &&
+        prompt.value.trim() !== '' &&
         promptLength.value <= PROMPT_LIMIT &&
         !hasReferenceError.value,
 );
@@ -175,7 +175,7 @@ const addReference = () => {
 
     references.value.push({
         id: nextRowId++,
-        url: "",
+        url: '',
         touched: false,
         previewFailed: false,
     });
@@ -190,7 +190,7 @@ const removeReference = (id: number) => {
  * since those are usually a preference rather than a per-image choice.
  */
 const reset = () => {
-    prompt.value = "";
+    prompt.value = '';
     references.value = [];
     estimate.value = null;
 };
@@ -206,7 +206,7 @@ const submit = () => {
         return;
     }
 
-    emit("submit", {
+    emit('submit', {
         prompt: prompt.value.trim(),
         size: size.value,
         quality: quality.value,
@@ -215,19 +215,19 @@ const submit = () => {
 };
 
 const handleShortcut = (event: KeyboardEvent) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
         event.preventDefault();
         submit();
     }
 };
 
 onMounted(() => {
-    window.addEventListener("keydown", handleShortcut);
+    window.addEventListener('keydown', handleShortcut);
     refreshEstimate();
 });
 
 onBeforeUnmount(() => {
-    window.removeEventListener("keydown", handleShortcut);
+    window.removeEventListener('keydown', handleShortcut);
     window.clearTimeout(estimateTimeout);
     estimateRequest.cancel();
 });
@@ -268,7 +268,7 @@ onBeforeUnmount(() => {
                     id="generation-prompt"
                     v-model="prompt"
                     :maxlength="PROMPT_LIMIT"
-                    class="h-32 resize-none field-sizing-fixed"
+                    class="field-sizing-fixed h-32 resize-none"
                     placeholder="Describe the shot — subject, surface, light, lens."
                 />
                 <p class="text-xs text-muted-foreground">
@@ -412,7 +412,10 @@ onBeforeUnmount(() => {
                 >
                     Estimating…
                 </p>
-                <p v-else-if="estimate" class="text-sm font-medium tabular-nums">
+                <p
+                    v-else-if="estimate"
+                    class="text-sm font-medium tabular-nums"
+                >
                     Estimated {{ formatUsd(estimate.price.estimate) }}
                 </p>
                 <p v-else class="text-[11px] text-muted-foreground">
@@ -426,7 +429,7 @@ onBeforeUnmount(() => {
             >
                 <Loader2 v-if="processing" class="animate-spin" />
                 <Sparkles v-else />
-                {{ processing ? "Generating…" : "Generate" }}
+                {{ processing ? 'Generating…' : 'Generate' }}
             </Button>
         </div>
     </form>

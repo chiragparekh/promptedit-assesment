@@ -1,11 +1,6 @@
 <script setup lang="ts">
 import { Head, InfiniteScroll, router, usePage } from '@inertiajs/vue3';
-import {
-    CircleAlert,
-    Clock,
-    Loader2,
-    Sparkles,
-} from '@lucide/vue';
+import { CircleAlert, Clock, Loader2, Sparkles } from '@lucide/vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import GenerationController from '@/actions/App/Http/Controllers/GenerationController';
 import GenerationSyncController from '@/actions/App/Http/Controllers/GenerationSyncController';
@@ -230,7 +225,7 @@ const handleSubmit = (request: GenerationRequest) => {
 
             <div
                 v-if="props.generations.data.length"
-                class="min-h-0 flex-1 overflow-y-auto pl-1 pr-3 [scrollbar-gutter:stable]"
+                class="min-h-0 flex-1 [scrollbar-gutter:stable] overflow-y-auto pr-3 pl-1"
             >
                 <InfiniteScroll
                     data="generations"
@@ -352,7 +347,7 @@ const handleSubmit = (request: GenerationRequest) => {
                                     <span v-if="estimatedCost(generation)">
                                         Estimated
                                         <span
-                                            class="tabular-nums text-foreground"
+                                            class="text-foreground tabular-nums"
                                         >
                                             {{ estimatedCost(generation) }}
                                         </span>
@@ -360,7 +355,7 @@ const handleSubmit = (request: GenerationRequest) => {
                                     <span v-if="actualCost(generation)">
                                         Actual
                                         <span
-                                            class="tabular-nums text-foreground"
+                                            class="text-foreground tabular-nums"
                                         >
                                             {{ actualCost(generation) }}
                                         </span>
