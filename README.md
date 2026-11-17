@@ -1,4 +1,4 @@
-# PromptEdit
+# Pixelforge
 
 A Laravel + Inertia + Vue app for submitting image generation prompts, watching them run, and tracking their cost.
 
