@@ -2,21 +2,23 @@
 import { Head, InfiniteScroll, router, usePage } from '@inertiajs/vue3';
 import {
     CircleAlert,
-    CircleCheck,
     Clock,
     Loader2,
     Sparkles,
 } from '@lucide/vue';
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import GenerationController from '@/actions/App/Http/Controllers/GenerationController';
+import GenerationSyncController from '@/actions/App/Http/Controllers/GenerationSyncController';
 import AlertError from '@/components/AlertError.vue';
 import GenerationComposer from '@/components/GenerationComposer.vue';
 import { useRelativeTime } from '@/composables/useRelativeTime';
+import { formatUsd } from '@/lib/pricing';
 import { dashboard } from '@/routes';
 import type {
     GenerationRecord,
     GenerationRequest,
     GenerationStatus,
+    GenerationSyncRow,
 } from '@/types/generation';
 
 defineOptions({
@@ -37,6 +39,7 @@ const props = defineProps<{
 
 const page = usePage();
 const processing = ref(false);
+const composer = ref<InstanceType<typeof GenerationComposer> | null>(null);
 const errors = computed(() => page.props.errors);
 const { formatRelativeTime, formatDateTime } = useRelativeTime();
 
@@ -47,11 +50,150 @@ const statusLabels: Record<GenerationStatus, string> = {
     failed: 'Failed',
 };
 
+/**
+ * What we quoted, and what we charged once the generation finished. Both are null
+ * until we know them, and a missing actual cost simply isn't shown.
+ */
+const estimatedCost = (generation: GenerationRecord): string | null =>
+    generation.estimated_cost ? formatUsd(generation.estimated_cost) : null;
+
+const actualCost = (generation: GenerationRecord): string | null => {
+    if (generation.actual_cost === null) {
+        return null;
+    }
+
+    return Number(generation.actual_cost) === 0
+        ? 'Free'
+        : formatUsd(generation.actual_cost);
+};
+
+const SYNC_INTERVAL_MS = 3000;
+const SYNC_MAX_ATTEMPTS = 100;
+
+const pendingIds = computed(() =>
+    props.generations.data
+        .filter(
+            (generation) =>
+                generation.status === 'queued' ||
+                generation.status === 'processing',
+        )
+        .map((generation) => generation.id),
+);
+
+let syncTimer: number | undefined;
+let syncAttempts = 0;
+let syncInFlight = false;
+
+/**
+ * Apply a fresh row from our own database onto the provider snapshot in the list,
+ * so a webhook that finished in the background shows up without a page reload.
+ */
+const applySync = (row: GenerationSyncRow) => {
+    const generation = props.generations.data.find(
+        (item) => item.id === row.provider_id,
+    );
+
+    if (!generation) {
+        return;
+    }
+
+    generation.status = row.status;
+    generation.image_url = row.image_url;
+    generation.image_url_expires_at = row.image_url_expires_at;
+    generation.error = row.error;
+    generation.estimated_cost = row.estimated_cost;
+    generation.actual_cost = row.actual_cost;
+    generation.completed_at = row.completed_at;
+};
+
+const stopSync = () => {
+    if (syncTimer === undefined) {
+        return;
+    }
+
+    window.clearInterval(syncTimer);
+    syncTimer = undefined;
+};
+
+const syncPending = async () => {
+    if (typeof window === 'undefined' || syncInFlight) {
+        return;
+    }
+
+    const ids = pendingIds.value;
+
+    if (ids.length === 0) {
+        stopSync();
+
+        return;
+    }
+
+    syncInFlight = true;
+
+    try {
+        const params = new URLSearchParams();
+        ids.forEach((id) => params.append('ids[]', id));
+
+        const response = await fetch(
+            `${GenerationSyncController.url()}?${params.toString()}`,
+            {
+                headers: { Accept: 'application/json' },
+                credentials: 'same-origin',
+            },
+        );
+
+        if (response.ok) {
+            const payload = (await response.json()) as {
+                data: GenerationSyncRow[];
+            };
+
+            payload.data.forEach(applySync);
+        }
+    } catch {
+        // Leave the row alone and try again on the next tick.
+    } finally {
+        syncInFlight = false;
+    }
+
+    syncAttempts += 1;
+
+    if (syncAttempts >= SYNC_MAX_ATTEMPTS) {
+        stopSync();
+    }
+};
+
+const startSync = () => {
+    if (syncTimer !== undefined) {
+        return;
+    }
+
+    syncAttempts = 0;
+    void syncPending();
+    syncTimer = window.setInterval(() => void syncPending(), SYNC_INTERVAL_MS);
+};
+
+watch(
+    pendingIds,
+    (ids) => {
+        if (ids.length > 0) {
+            startSync();
+        } else {
+            stopSync();
+        }
+    },
+    { immediate: true },
+);
+
+onBeforeUnmount(stopSync);
+
 const handleSubmit = (request: GenerationRequest) => {
     router.post(GenerationController.store.url(), request, {
         preserveScroll: true,
         onStart: () => {
             processing.value = true;
+        },
+        onSuccess: () => {
+            composer.value?.reset();
         },
         onFinish: () => {
             processing.value = false;
@@ -64,9 +206,10 @@ const handleSubmit = (request: GenerationRequest) => {
     <Head title="Dashboard" />
 
     <div
-        class="flex flex-1 flex-col gap-4 p-4 lg:h-[calc(100dvh-4rem)] lg:min-h-0 lg:flex-row lg:overflow-hidden"
+        class="flex flex-col gap-4 p-4 lg:h-[calc(100dvh-4rem-1px)] lg:min-h-0 lg:flex-none lg:flex-row lg:overflow-hidden"
     >
         <GenerationComposer
+            ref="composer"
             class="w-full lg:w-[380px] lg:shrink-0"
             :processing="processing"
             :errors="errors"
@@ -87,7 +230,7 @@ const handleSubmit = (request: GenerationRequest) => {
 
             <div
                 v-if="props.generations.data.length"
-                class="min-h-0 flex-1 overflow-y-auto"
+                class="min-h-0 flex-1 overflow-y-auto pl-1 pr-3 [scrollbar-gutter:stable]"
             >
                 <InfiniteScroll
                     data="generations"
@@ -120,6 +263,7 @@ const handleSubmit = (request: GenerationRequest) => {
                                     class="aspect-square w-full object-cover"
                                 />
                                 <span
+                                    v-if="generation.status !== 'succeeded'"
                                     role="img"
                                     :title="statusLabels[generation.status]"
                                     :aria-label="
@@ -127,14 +271,8 @@ const handleSubmit = (request: GenerationRequest) => {
                                     "
                                     class="absolute top-1.5 right-1.5 flex size-6 items-center justify-center rounded-full bg-background/90 shadow-sm backdrop-blur"
                                 >
-                                    <CircleCheck
-                                        v-if="generation.status === 'succeeded'"
-                                        class="size-4 text-emerald-600 dark:text-emerald-400"
-                                    />
                                     <CircleAlert
-                                        v-else-if="
-                                            generation.status === 'failed'
-                                        "
+                                        v-if="generation.status === 'failed'"
                                         class="size-4 text-destructive"
                                     />
                                     <Loader2
@@ -203,6 +341,30 @@ const handleSubmit = (request: GenerationRequest) => {
                                             )
                                         }}
                                     </time>
+                                </div>
+                                <div
+                                    v-if="
+                                        estimatedCost(generation) ||
+                                        actualCost(generation)
+                                    "
+                                    class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground"
+                                >
+                                    <span v-if="estimatedCost(generation)">
+                                        Estimated
+                                        <span
+                                            class="tabular-nums text-foreground"
+                                        >
+                                            {{ estimatedCost(generation) }}
+                                        </span>
+                                    </span>
+                                    <span v-if="actualCost(generation)">
+                                        Actual
+                                        <span
+                                            class="tabular-nums text-foreground"
+                                        >
+                                            {{ actualCost(generation) }}
+                                        </span>
+                                    </span>
                                 </div>
                                 <p
                                     v-if="generation.error"
