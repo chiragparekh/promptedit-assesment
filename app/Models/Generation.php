@@ -29,6 +29,10 @@ use Illuminate\Support\Carbon;
  * @property int|null $input_image_tokens_rate_cents Cents per 1M input image tokens.
  * @property int|null $output_tokens_rate_cents Cents per 1M output tokens.
  * @property int|null $reasoning_tokens_rate_cents Cents per 1M reasoning tokens.
+ * @property int|null $estimated_provider_cost_nano What we expected the provider to charge us.
+ * @property int|null $estimated_price_nano What we quoted the user.
+ * @property int|null $actual_provider_cost_nano What the provider billed us, once known.
+ * @property int|null $actual_price_nano What we charged the user, once known.
  * @property array{code: string, message: string}|null $error
  * @property Carbon|null $accepted_at When the provider accepted the request.
  * @property Carbon|null $started_at
@@ -39,6 +43,12 @@ use Illuminate\Support\Carbon;
 class Generation extends Model
 {
     use HasUuids;
+
+    /** @var array<int, string> */
+    public const SIZES = ['1024x1024', '1536x1024', '1024x1536'];
+
+    /** @var array<int, string> */
+    public const QUALITIES = ['low', 'medium', 'high'];
 
     /**
      * @return BelongsTo<User, $this>
@@ -120,6 +130,10 @@ class Generation extends Model
             'input_image_tokens_rate_cents' => 'integer',
             'output_tokens_rate_cents' => 'integer',
             'reasoning_tokens_rate_cents' => 'integer',
+            'estimated_provider_cost_nano' => 'integer',
+            'estimated_price_nano' => 'integer',
+            'actual_provider_cost_nano' => 'integer',
+            'actual_price_nano' => 'integer',
             'started_at' => 'datetime',
             'completed_at' => 'datetime',
         ];
